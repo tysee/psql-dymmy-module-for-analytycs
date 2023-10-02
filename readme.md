@@ -20,9 +20,14 @@
     table_name = "csv"
     csv = "test.csv"
 
-    pdb = PostgresDB(dbconfig, server, db_required_keys)
+   pdb = PostgresDB(dbconfig, server, db_required_keys)
 
-    data, table_structure = pdb.read_csv_for_db(csv)
-    pdb.create_table(schema_name, table_name, table_structure)
-    pdb.insert_data_to_db(data, 100000, schema_name, table_name)
+   data, table_structure = pdb.read_csv_for_db(csv)
+   
+   pdb.create_table(schema_name, table_name, table_structure)
+   
+   pdb.simple_insert_data_to_db(data, 50000, schema_name, table_name)
+   
+   pdb.parallel_insert_data_to_db(data, 100000, schema_name, table_name, 10)
+   
     ```

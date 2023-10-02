@@ -1,7 +1,13 @@
 import yaml
 import psycopg2
 import pandas as pd
-import json
+import queue
+import threading
+import logging
+
+# Initialize logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 class PostgresDB:
@@ -52,6 +58,8 @@ class PostgresDB:
             'str': 'VARCHAR(255)',
         }
         try:
+            logger.info(f"Reading CSV file {file_path}...")
+
             df = pd.read_csv(file_path, delimiter=delimiter, encoding=encoding, na_values=na_values)
             df = df.applymap(lambda x: None if pd.isna(x) else x)
 
@@ -63,14 +71,15 @@ class PostgresDB:
                 table_structure[col] = sql_data_type
 
             table_structure_json = table_structure
+            logger.info(f"CSV file read successfully. {len(df)} rows read.")
 
             return df, table_structure_json
 
         except FileNotFoundError:
-            raise FileNotFoundError(f"File {file_path} not found.")
+            logger.error(f"File {file_path} not found.")
 
         except Exception as e:
-            raise ValueError(f"Error reading the file {file_path}: {e}")
+            logger.error(f"Error reading the file {file_path}: {e}")
 
     def connect_to_db(self):
         return psycopg2.connect(**self.db_params)
@@ -93,10 +102,11 @@ class PostgresDB:
             )
             '''
             m.execute(query)
-            return "Table created successfully"
+            logger.info(f"Table {schema_name}.{table_name} created successfully.")
 
-    def insert_data_to_db(self, df, batch_size, schema_name, table_name):
+    def simple_insert_data_to_db(self, df, batch_size, schema_name, table_name):
         with self as cursor:
+            logger.info("Starting insertion of data...")
             columns = ', '.join(df.columns)
             values_placeholder = ', '.join(['%s'] * len(df.columns))
             insert_query = f"INSERT INTO {schema_name}.{table_name} ({columns}) VALUES ({values_placeholder})"
@@ -107,4 +117,59 @@ class PostgresDB:
                 records = [tuple(x) for x in batch.values]
                 cursor.executemany(insert_query, records)
 
-            return "Data inserted successfully"
+            logger.info("Data inserted successfully.")
+
+    def insert_worker(self, q, schema_name, table_name):
+        try:
+            conn = self.connect_to_db()
+            cursor = conn.cursor()
+
+            while True:
+                batch = q.get()
+                if batch is None:
+                    logger.info(
+                        f"Worker {threading.current_thread().name}. Preparing to exit...")
+                    q.task_done()
+                    break
+                columns = ', '.join(batch.columns)
+                values_placeholder = ', '.join(['%s'] * len(batch.columns))
+                insert_query = f"INSERT INTO {schema_name}.{table_name} ({columns}) VALUES ({values_placeholder})"
+                records = [tuple(x) for x in batch.values]
+                cursor.executemany(insert_query, records)
+                conn.commit()
+                q.task_done()
+
+            cursor.close()
+            conn.close()
+            logger.info(f"Worker {threading.current_thread().name} has exited.")
+        except Exception as e:
+            logger.error(f"Error in worker thread: {e}")
+            q.task_done()
+
+    def parallel_insert_data_to_db(self, df, batch_size, schema_name, table_name, num_threads=4):
+        try:
+            logger.info("Starting parallel insertion of data...")
+            q = queue.Queue(maxsize=num_threads * 2)
+
+            threads = []
+            for _ in range(num_threads):
+                t = threading.Thread(target=self.insert_worker,
+                                     args=(q, schema_name, table_name))
+                t.start()
+                threads.append(t)
+                logger.info(f"Thread {t.name} started.")
+
+            batches = [df.iloc[i:i + batch_size] for i in range(0, len(df), batch_size)]
+            for batch in batches:
+                q.put(batch)
+
+            for _ in range(num_threads):
+                q.put(None)
+
+            q.join()
+            logger.info("All batches processed.")
+
+            return "Data inserted successfully in parallel"
+        except Exception as e:
+            logger.error(f"Error in parallel_insert_data_to_db: {e}")
+            return f"Error: {e}"
