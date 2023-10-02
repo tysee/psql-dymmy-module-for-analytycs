@@ -44,7 +44,9 @@ class PostgresDB:
     def read_csv_for_db(file_path, delimiter=',', encoding='utf-8', na_values=None):
 
         type_mapping = {
+            'int32': 'BIGINT',
             'int64': 'BIGINT',
+            'float32': 'DOUBLE PRECISION',
             'float64': 'DOUBLE PRECISION',
             'object': 'VARCHAR(255)',
             'str': 'VARCHAR(255)',
@@ -60,7 +62,7 @@ class PostgresDB:
                 sql_data_type = type_mapping.get(str(data_type), 'UNKNOWN')
                 table_structure[col] = sql_data_type
 
-            table_structure_json = json.dumps(table_structure, indent=4)
+            table_structure_json = table_structure
 
             return df, table_structure_json
 

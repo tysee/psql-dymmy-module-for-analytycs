@@ -12,7 +12,6 @@
 3) Run the needed methods from postgresdb.py:
     ```python
     from postgresdb import PostgresDB
-    import json
 
     dbconfig = "dbconfig.yaml"
     server = "test-server"
@@ -23,8 +22,7 @@
 
     pdb = PostgresDB(dbconfig, server, db_required_keys)
 
-    data, table_structure = pdb_1.read_csv_for_db(csv)
-    table_structure = json.loads(table_structure)
+    data, table_structure = pdb.read_csv_for_db(csv)
     pdb.create_table(schema_name, table_name, table_structure)
     pdb.insert_data_to_db(data, 100000, schema_name, table_name)
     ```
