@@ -4,6 +4,7 @@ import pandas as pd
 import queue
 import threading
 import logging
+import numpy as np
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -47,7 +48,7 @@ class PostgresDB:
             raise ValueError(f"Error parsing the YAML file: {e}")
 
     @staticmethod
-    def read_csv_for_db(file_path, delimiter=',', encoding='utf-8', na_values=None):
+    def read_csv_for_db(file_path, delimiter=',', encoding='utf-8'):
 
         type_mapping = {
             'int32': 'BIGINT',
@@ -60,8 +61,8 @@ class PostgresDB:
         try:
             logger.info(f"Reading CSV file {file_path}...")
 
-            df = pd.read_csv(file_path, delimiter=delimiter, encoding=encoding, na_values=na_values)
-            df = df.applymap(lambda x: None if pd.isna(x) else x)
+            df = pd.read_csv(file_path, delimiter=delimiter, encoding=encoding)
+            df = df.fillna(np.nan).replace([np.nan], [None])
 
             column_types = df.dtypes
 
@@ -86,23 +87,21 @@ class PostgresDB:
 
     def create_table(self, schema_name, table_name, table_structure):
         with self as m:
-            check_query = (f"SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema='{schema_name}' "
-                           f"AND table_name='{table_name}')")
-            m.execute(check_query)
-            table_exists = m.fetchone()[0]
-
-            if table_exists:
-                raise ValueError(f"Table {schema_name}.{table_name} already exists!")
-            
-            columns_definition = ", ".join(f"{column} {definition}" for column, definition in table_structure.items())
-
-            query = f'''
-            CREATE TABLE IF NOT EXISTS {schema_name}.{table_name} (
-                {columns_definition}
-            )
-            '''
-            m.execute(query)
-            logger.info(f"Table {schema_name}.{table_name} created successfully.")
+            try:
+                columns_definition = ", ".join(
+                    f"{column} {definition}" for column, definition in table_structure.items())
+                query = f'''
+                CREATE TABLE {schema_name}.{table_name} (
+                    {columns_definition}
+                )
+                '''
+                m.execute(query)
+                logger.info(f"Table {schema_name}.{table_name} created successfully.")
+            except Exception as e:
+                if "already exists" in str(e).lower():
+                    logger.info(f"Table {schema_name}.{table_name} already exists!")
+                else:
+                    logger.error(f"Error creating table {schema_name}.{table_name}: {e}")
 
     def simple_insert_data_to_db(self, df, batch_size, schema_name, table_name):
         with self as cursor:
