@@ -6,7 +6,6 @@ import threading
 import logging
 import numpy as np
 
-# Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -85,6 +84,15 @@ class PostgresDB:
     def connect_to_db(self):
         return psycopg2.connect(**self.db_params)
 
+    def delete_data_from_table(self, schema_name, table_name):
+        with self as m:
+            try:
+                query = f"DELETE FROM {schema_name}.{table_name}"
+                m.execute(query)
+                logger.info(f"Data deleted from table {schema_name}.{table_name} successfully.")
+            except Exception as e:
+                logger.error(f"Error deleting data from table {schema_name}.{table_name}: {e}")
+
     def create_table(self, schema_name, table_name, table_structure):
         with self as m:
             try:
@@ -126,8 +134,6 @@ class PostgresDB:
             while True:
                 batch = q.get()
                 if batch is None:
-                    logger.info(
-                        f"Worker {threading.current_thread().name}. Preparing to exit...")
                     q.task_done()
                     break
                 columns = ', '.join(batch.columns)
